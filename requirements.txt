@@ -1,0 +1,5 @@
+# Extra dependencies on top of audiobook-core (installed from build context)
+nodriver==0.50.3
+# verify_cf (Cloudflare Turnstile checkbox) uses opencv template matching
+opencv-python-headless==4.10.0.84
+Pillow==11.0.0
