@@ -6,8 +6,7 @@ cd "$(dirname "$0")"
 
 SERVICE="audiobook-worker-scraper"
 IMAGE="mathiasschnack/${SERVICE}"
-# Set once the Sevalla app exists (or export SEVALLA_APP_ID_OVERRIDE)
-APP_ID="${SEVALLA_APP_ID_OVERRIDE:-}"
+APP_ID="${SEVALLA_APP_ID_OVERRIDE:-7bc20f5a-9dbe-410f-8783-de9617164588}"
 VERSION="${1:-v$(date +%Y%m%d-%H%M%S)}"
 
 docker buildx build \
