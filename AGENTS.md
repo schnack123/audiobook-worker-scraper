@@ -18,6 +18,10 @@ layout, job runtime, staleness logic) lives in `audiobook-core`
   updates. wtr-lab chapters are number-addressed (`ChapterRef.number`) and
   always use the free "web" translation (`?service=web`). Locked (paid)
   webnovel chapters are skipped entirely.
+- Pre-scraper chapter rows (numbered, no `source_url`) are adopted on first
+  TOC sync — by site number on wtr-lab, by TOC position on URL-addressed
+  sites — so old novels can be linked to a source URL and updated without
+  duplicating chapters.
 - Handlers receive `(job, execution)` and return a list of failed chapter
   numbers. Respect `execution.interrupted` between chapters and report
   progress via `execution.report_progress`.

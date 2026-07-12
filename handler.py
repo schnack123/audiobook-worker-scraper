@@ -8,10 +8,13 @@ Job types:
 Chapters on fanmtl/webnovel are URL-addressed: rows are matched by
 chapters.source_url and numbered by TOC position, so numbering stays stable
 across updates and new chapters append at the end. wtr-lab chapters are
-number-addressed (ChapterRef.number from the site's API), which also lets
-this worker adopt rows created by the old WTR-LAB ingest worker (numbered,
-no source_url). Locked (paid) webnovel chapters are skipped entirely - they
-get no rows and appear as new chapters if they ever unlock.
+number-addressed (ChapterRef.number from the site's API). Pre-scraper rows
+(numbered, no source_url - old WTR ingest worker, EPUBs, v1 imports) are
+adopted on first sync: by site number on wtr-lab, by TOC position on
+URL-addressed sites, so linking a source URL to an old novel continues where
+it left off instead of duplicating chapters. Locked (paid) webnovel chapters
+are skipped entirely - they get no rows and appear as new chapters if they
+ever unlock.
 """
 import asyncio
 import io
@@ -102,12 +105,20 @@ async def _sync_toc(job: Job, info: NovelInfo, source_url: str) -> tuple[dict[in
         number_to_ref: dict[int, ChapterRef] = {}
         scraped: set[int] = set()
         new_count = 0
-        for ref in unlocked:
+        for position, ref in enumerate(unlocked, start=1):
             row = by_url.get(ref.url)
-            if row is None and ref.number is not None:
-                # Number-addressed site: adopt the existing numbered row
-                # (possibly created by the old WTR ingest worker)
-                row = by_number.get(ref.number)
+            if row is None:
+                if ref.number is not None:
+                    # Number-addressed site: adopt the existing numbered row
+                    # (possibly created by the old WTR ingest worker)
+                    row = by_number.get(ref.number)
+                else:
+                    # URL-addressed site: adopt a pre-scraper row (numbered,
+                    # no source_url) at the same TOC position, so linking a
+                    # source URL to an old novel doesn't duplicate chapters.
+                    candidate = by_number.get(position)
+                    if candidate is not None and candidate.source_url is None:
+                        row = candidate
                 if row is not None:
                     row.source_url = ref.url
             if row is None:
