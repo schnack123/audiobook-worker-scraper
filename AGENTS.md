@@ -8,12 +8,15 @@ layout, job runtime, staleness logic) lives in `audiobook-core`
 - Platform overview, service catalog, and deploy workflow: `audiobook-platform`
   repo (locally at /Users/mats/Cursor/Audiobook creator).
 - Consumes the `scraper` Redis queue (job types `web_scrape`,
-  `check_chapters`). Scrapes fanmtl.com and webnovel.com with a real Chrome
-  (nodriver + Xvfb) to pass Cloudflare; parsers are ported from WebToEpub.
+  `check_chapters`). Scrapes fanmtl.com, webnovel.com and wtr-lab.com with a
+  real Chrome (nodriver + Xvfb) to pass Cloudflare; fanmtl/webnovel parsers
+  are ported from WebToEpub.
 - Parsers (parsers/) are pure HTML-in/data-out and unit-tested against saved
   fixtures in tests/fixtures - update the fixtures if a site changes layout.
-- Chapters here are URL-addressed: rows match by `chapters.source_url`,
-  numbers are TOC positions and stay stable across updates. Locked (paid)
+- fanmtl/webnovel chapters are URL-addressed: rows match by
+  `chapters.source_url`, numbers are TOC positions and stay stable across
+  updates. wtr-lab chapters are number-addressed (`ChapterRef.number`) and
+  always use the free "web" translation (`?service=web`). Locked (paid)
   webnovel chapters are skipped entirely.
 - Handlers receive `(job, execution)` and return a list of failed chapter
   numbers. Respect `execution.interrupted` between chapters and report

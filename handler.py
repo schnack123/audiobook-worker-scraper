@@ -1,15 +1,17 @@
-"""Scraper worker: browser-based ingest for fanmtl.com / webnovel.com.
+"""Scraper worker: browser-based ingest for fanmtl.com / webnovel.com / wtr-lab.com.
 
 Job types:
 - web_scrape:     TOC sync + download chapter text -> {Novel}/Text/{N}.txt
 - check_chapters: TOC sync only (new chapter rows, metadata, cover) - lets the
                   frontend show "N new chapters" without downloading anything.
 
-Chapters on these sites are URL-addressed, not number-addressed like WTR-LAB:
-rows are matched by chapters.source_url and numbered by TOC position, so
-numbering stays stable across updates and new chapters append at the end.
-Locked (paid) webnovel chapters are skipped entirely - they get no rows and
-appear as new chapters if they ever unlock.
+Chapters on fanmtl/webnovel are URL-addressed: rows are matched by
+chapters.source_url and numbered by TOC position, so numbering stays stable
+across updates and new chapters append at the end. wtr-lab chapters are
+number-addressed (ChapterRef.number from the site's API), which also lets
+this worker adopt rows created by the old WTR-LAB ingest worker (numbered,
+no source_url). Locked (paid) webnovel chapters are skipped entirely - they
+get no rows and appear as new chapters if they ever unlock.
 """
 import asyncio
 import io
@@ -94,6 +96,7 @@ async def _sync_toc(job: Job, info: NovelInfo, source_url: str) -> tuple[dict[in
             )
         ).scalars().all()
         by_url = {c.source_url: c for c in rows if c.source_url}
+        by_number = {c.number: c for c in rows}
         next_number = max((c.number for c in rows), default=0) + 1
 
         number_to_ref: dict[int, ChapterRef] = {}
@@ -101,10 +104,18 @@ async def _sync_toc(job: Job, info: NovelInfo, source_url: str) -> tuple[dict[in
         new_count = 0
         for ref in unlocked:
             row = by_url.get(ref.url)
+            if row is None and ref.number is not None:
+                # Number-addressed site: adopt the existing numbered row
+                # (possibly created by the old WTR ingest worker)
+                row = by_number.get(ref.number)
+                if row is not None:
+                    row.source_url = ref.url
             if row is None:
-                row = Chapter(novel_id=job.novel_id, number=next_number, source_url=ref.url)
+                number = ref.number if ref.number is not None else next_number
+                row = Chapter(novel_id=job.novel_id, number=number, source_url=ref.url)
                 session.add(row)
-                next_number += 1
+                by_number[number] = row
+                next_number = max(next_number, number + 1)
                 new_count += 1
             if not row.title:
                 row.title = ref.title
@@ -223,7 +234,7 @@ async def _run_web_scrape(job: Job, execution: JobExecution) -> list[int]:
                 break
             ref = number_to_ref[number]
             try:
-                html = await browser.get_html(ref.url, parser.chapter_ready_selector)
+                html = await browser.get_html(ref.url, parser.chapter_ready(ref.url))
                 title, text = parser.parse_chapter(html, ref.url)
                 if len(text) < MIN_CHAPTER_CHARS:
                     raise ValueError(f"content too short ({len(text)} chars)")

@@ -18,6 +18,9 @@ class ChapterRef:
     title: str
     url: str
     locked: bool = False  # paid/locked chapters are skipped entirely
+    # Site-assigned chapter number for number-addressed sites (wtr-lab).
+    # None = URL-addressed; the handler numbers chapters by TOC position.
+    number: int | None = None
 
 
 @dataclass
@@ -41,6 +44,11 @@ class Parser:
     def toc_url(self, novel_url: str) -> str:
         """URL of the page holding the chapter list (defaults to the novel URL)."""
         return novel_url
+
+    def chapter_ready(self, chapter_url: str) -> str:
+        """Ready selector for one chapter page (override when it depends on
+        the URL, e.g. infinite readers that preload neighboring chapters)."""
+        return self.chapter_ready_selector
 
     def metadata_url(self, novel_url: str) -> str | None:
         """Extra page to fetch for description/cover when the TOC page lacks
