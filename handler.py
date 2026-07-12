@@ -234,7 +234,11 @@ async def _run_web_scrape(job: Job, execution: JobExecution) -> list[int]:
                 break
             ref = number_to_ref[number]
             try:
-                html = await browser.get_html(ref.url, parser.chapter_ready(ref.url))
+                html = await browser.get_html(
+                    ref.url,
+                    parser.chapter_ready(ref.url),
+                    is_ready=lambda h, u=ref.url: parser.chapter_is_ready(h, u),
+                )
                 title, text = parser.parse_chapter(html, ref.url)
                 if len(text) < MIN_CHAPTER_CHARS:
                     raise ValueError(f"content too short ({len(text)} chars)")

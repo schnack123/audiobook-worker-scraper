@@ -50,6 +50,12 @@ class Parser:
         the URL, e.g. infinite readers that preload neighboring chapters)."""
         return self.chapter_ready_selector
 
+    def chapter_is_ready(self, html: str, url: str) -> bool:
+        """Content-level readiness check, polled after the ready selector
+        matches. Override for SPAs whose skeleton DOM already satisfies the
+        selector (empty placeholder lines etc.)."""
+        return True
+
     def metadata_url(self, novel_url: str) -> str | None:
         """Extra page to fetch for description/cover when the TOC page lacks
         them (None = TOC page has everything)."""

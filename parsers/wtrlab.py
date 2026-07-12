@@ -55,6 +55,15 @@ class WtrLabParser(Parser):
             return f"#chapter-{match.group(1)} div.chapter-body div.wtr-line"
         return self.chapter_ready_selector
 
+    def chapter_is_ready(self, html: str, url: str) -> bool:
+        """The reader inserts the chapter container (and empty/placeholder
+        wtr-line divs) before the decrypted text arrives, so the ready
+        selector alone can match a still-loading chapter."""
+        try:
+            return bool(self.parse_chapter(html, url)[1].strip())
+        except ParserError:
+            return False
+
     def _next_data(self, html: str, url: str) -> dict:
         soup = BeautifulSoup(html, "lxml")
         script = soup.select_one("script#__NEXT_DATA__")

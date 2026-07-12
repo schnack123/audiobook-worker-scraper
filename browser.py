@@ -58,10 +58,18 @@ class ScraperBrowser:
                 logger.warning("Browser stop failed: %s", e)
             self._browser = None
 
-    async def get_html(self, url: str, wait_selector: str | None = None) -> str:
-        """Navigate and return the rendered HTML once `wait_selector` matches.
-        Handles Cloudflare interstitials (waits them out, clicks the Turnstile
-        checkbox once if needed)."""
+    async def get_html(
+        self,
+        url: str,
+        wait_selector: str | None = None,
+        is_ready=None,
+    ) -> str:
+        """Navigate and return the rendered HTML once `wait_selector` matches
+        (and `is_ready(html)` returns True, when given). The content check
+        guards against SPAs that briefly satisfy the selector with stale or
+        skeleton DOM (e.g. wtr-lab's infinite reader preloading the next
+        chapter's empty container). Handles Cloudflare interstitials (waits
+        them out, clicks the Turnstile checkbox once if needed)."""
         assert self._browser is not None, "start() not called"
         tab = await self._browser.get(url)
         loop = asyncio.get_running_loop()
@@ -83,13 +91,15 @@ class ScraperBrowser:
                     except Exception as e:
                         logger.debug("verify_cf failed (may auto-pass): %s", e)
                 continue
-            if wait_selector is None:
-                return html
-            try:
-                await tab.select(wait_selector, timeout=3)
-                return await tab.get_content()
-            except Exception:
+            if wait_selector is not None:
+                try:
+                    await tab.select(wait_selector, timeout=3)
+                except Exception:
+                    continue
+                html = await tab.get_content()
+            if is_ready is not None and not is_ready(html):
                 continue
+            return html
         if _is_challenge(html):
             raise ScraperBlockedError(f"Blocked by Cloudflare challenge at {url}")
         raise TimeoutError(f"Page did not render {wait_selector!r} within {PAGE_TIMEOUT}s: {url}")
