@@ -28,7 +28,8 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-RUN useradd -m scraper && chown -R scraper /app
+RUN useradd -m scraper && chown -R scraper /app \
+    && mkdir -p /tmp/.X11-unix && chmod 1777 /tmp/.X11-unix
 USER scraper
 
 CMD ["./entrypoint.sh"]
