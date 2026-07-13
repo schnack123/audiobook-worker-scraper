@@ -61,7 +61,10 @@ class ScraperBrowser:
     async def restart(self) -> None:
         """Fresh Chrome session (new profile/cookies). Some sites stop serving
         chapter content after a number of pages per session; a restart resets
-        that."""
+        that. Bounded so a wedged Chrome can't hang the job forever."""
+        await asyncio.wait_for(self._restart(), timeout=180.0)
+
+    async def _restart(self) -> None:
         await self.stop()
         await self.start()
 
@@ -78,7 +81,9 @@ class ScraperBrowser:
         chapter's empty container). Handles Cloudflare interstitials (waits
         them out, clicks the Turnstile checkbox once if needed)."""
         assert self._browser is not None, "start() not called"
-        tab = await self._browser.get(url)
+        # Bounded: a wedged Chrome can make .get() hang indefinitely, which
+        # would stall the whole job (heartbeats keep it "processing" forever).
+        tab = await asyncio.wait_for(self._browser.get(url), timeout=30.0)
         loop = asyncio.get_running_loop()
         deadline = loop.time() + PAGE_TIMEOUT
         verify_attempted = False
