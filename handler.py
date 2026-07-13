@@ -208,6 +208,33 @@ async def _run_check(job: Job, execution: JobExecution) -> list[int]:
 # web_scrape: TOC sync + chapter download
 # --------------------------------------------------------------------------
 
+async def _fetch_chapter(browser, parser, ref, number) -> tuple[str | None, str]:
+    """Fetch one chapter; on a render timeout, restart Chrome once and retry.
+
+    wtr-lab stops delivering chapter text after ~5 pages in one session
+    (renders the shell plus an anti-adblock overlay instead); a fresh browser
+    session resets that, so a timeout usually means "session expired", not
+    "site broken"."""
+    try:
+        html = await browser.get_html(
+            ref.url,
+            parser.chapter_ready(ref.url),
+            is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
+        )
+    except TimeoutError:
+        logger.info("Chapter %d timed out; restarting browser session and retrying", number)
+        await browser.restart()
+        html = await browser.get_html(
+            ref.url,
+            parser.chapter_ready(ref.url),
+            is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
+        )
+    title, text = parser.parse_chapter(html, ref.url)
+    if len(text) < MIN_CHAPTER_CHARS:
+        raise ValueError(f"content too short ({len(text)} chars)")
+    return title, text
+
+
 async def _run_web_scrape(job: Job, execution: JobExecution) -> list[int]:
     novel_name, source_url = await _resolve_source(job)
     parser = get_parser(source_url)
@@ -245,14 +272,7 @@ async def _run_web_scrape(job: Job, execution: JobExecution) -> list[int]:
                 break
             ref = number_to_ref[number]
             try:
-                html = await browser.get_html(
-                    ref.url,
-                    parser.chapter_ready(ref.url),
-                    is_ready=lambda h, u=ref.url: parser.chapter_is_ready(h, u),
-                )
-                title, text = parser.parse_chapter(html, ref.url)
-                if len(text) < MIN_CHAPTER_CHARS:
-                    raise ValueError(f"content too short ({len(text)} chars)")
+                title, text = await _fetch_chapter(browser, parser, ref, number)
                 etag = await s3.aput_text(text_key(novel_name, number), text)
                 async with session_scope() as session:
                     chapter = (

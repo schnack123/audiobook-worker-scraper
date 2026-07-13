@@ -58,6 +58,13 @@ class ScraperBrowser:
                 logger.warning("Browser stop failed: %s", e)
             self._browser = None
 
+    async def restart(self) -> None:
+        """Fresh Chrome session (new profile/cookies). Some sites stop serving
+        chapter content after a number of pages per session; a restart resets
+        that."""
+        await self.stop()
+        await self.start()
+
     async def get_html(
         self,
         url: str,
