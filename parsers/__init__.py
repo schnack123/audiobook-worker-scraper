@@ -4,9 +4,8 @@ from urllib.parse import urlparse
 from parsers.base import ChapterRef, NovelInfo, Parser, ParserError
 from parsers.qidian import QidianParser
 from parsers.readwn import ReadwnParser
-from parsers.wtrlab import WtrLabParser
 
-_PARSERS: list[Parser] = [ReadwnParser(), QidianParser(), WtrLabParser()]
+_PARSERS: list[Parser] = [ReadwnParser(), QidianParser()]
 
 SUPPORTED_HOSTS = tuple(host for p in _PARSERS for host in p.hosts)
 

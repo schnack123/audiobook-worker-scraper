@@ -1,25 +1,24 @@
-"""Scraper worker: browser-based ingest for fanmtl.com / webnovel.com / wtr-lab.com.
+"""Scraper worker: browser-based ingest for fanmtl.com / webnovel.com.
 
 Job types:
 - web_scrape:     TOC sync + download chapter text -> {Novel}/Text/{N}.txt
 - check_chapters: TOC sync only (new chapter rows, metadata, cover) - lets the
                   frontend show "N new chapters" without downloading anything.
 
-Chapters on fanmtl/webnovel are URL-addressed: rows are matched by
-chapters.source_url and numbered by TOC position, so numbering stays stable
-across updates and new chapters append at the end. wtr-lab chapters are
-number-addressed (ChapterRef.number from the site's API). Pre-scraper rows
-(numbered, no source_url - old WTR ingest worker, EPUBs, v1 imports) are
-adopted on first sync: by site number on wtr-lab, by TOC position on
-URL-addressed sites, so linking a source URL to an old novel continues where
-it left off instead of duplicating chapters. Locked (paid) webnovel chapters
-are skipped entirely - they get no rows and appear as new chapters if they
-ever unlock.
+Chapters are URL-addressed: rows are matched by chapters.source_url and
+numbered by TOC position, so numbering stays stable across updates and new
+chapters append at the end. Rows from another source (no source_url - old
+ingest/EPUB/v1 imports - or a different host after a source switch) are
+adopted by TOC position on first sync, so linking a source URL to an old
+novel continues where it left off instead of duplicating chapters. Locked
+(paid) webnovel chapters are skipped entirely - they get no rows and appear
+as new chapters if they ever unlock.
 """
 import asyncio
 import io
 import logging
 import random
+from urllib.parse import urlparse
 
 import httpx
 from sqlalchemy import select
@@ -102,31 +101,33 @@ async def _sync_toc(job: Job, info: NovelInfo, source_url: str) -> tuple[dict[in
         by_number = {c.number: c for c in rows}
         next_number = max((c.number for c in rows), default=0) + 1
 
+        source_host = (urlparse(source_url).hostname or "").lower()
+
+        def _is_other_source(row: Chapter) -> bool:
+            """No source_url (old ingest/EPUB/v1 rows) or a different host
+            (novel was relinked to another site)."""
+            if row.source_url is None:
+                return True
+            return (urlparse(row.source_url).hostname or "").lower() != source_host
+
         number_to_ref: dict[int, ChapterRef] = {}
         scraped: set[int] = set()
         new_count = 0
         for position, ref in enumerate(unlocked, start=1):
             row = by_url.get(ref.url)
             if row is None:
-                if ref.number is not None:
-                    # Number-addressed site: adopt the existing numbered row
-                    # (possibly created by the old WTR ingest worker)
-                    row = by_number.get(ref.number)
-                else:
-                    # URL-addressed site: adopt a pre-scraper row (numbered,
-                    # no source_url) at the same TOC position, so linking a
-                    # source URL to an old novel doesn't duplicate chapters.
-                    candidate = by_number.get(position)
-                    if candidate is not None and candidate.source_url is None:
-                        row = candidate
-                if row is not None:
+                # Adopt the row at the same TOC position when it came from
+                # another source, so linking/relinking an existing novel
+                # continues where it left off instead of duplicating chapters.
+                candidate = by_number.get(position)
+                if candidate is not None and _is_other_source(candidate):
+                    row = candidate
                     row.source_url = ref.url
             if row is None:
-                number = ref.number if ref.number is not None else next_number
-                row = Chapter(novel_id=job.novel_id, number=number, source_url=ref.url)
+                row = Chapter(novel_id=job.novel_id, number=next_number, source_url=ref.url)
                 session.add(row)
-                by_number[number] = row
-                next_number = max(next_number, number + 1)
+                by_number[next_number] = row
+                next_number += 1
                 new_count += 1
             if not row.title:
                 row.title = ref.title
@@ -208,35 +209,23 @@ async def _run_check(job: Job, execution: JobExecution) -> list[int]:
 # web_scrape: TOC sync + chapter download
 # --------------------------------------------------------------------------
 
-async def _fetch_chapter(browser, parser, ref, number, execution) -> tuple[str | None, str]:
-    """Fetch one chapter; on a render timeout, restart Chrome and retry after
-    the parser's backoff waits.
-
-    Some sites throttle chapter delivery per IP (wtr-lab serves ~5 web
-    translations, then renders the page shell without text for ~10 minutes).
-    A timeout there means "throttled", not "site broken", so wait out the
-    parser's `timeout_backoffs` before giving up on the chapter."""
-    backoffs = list(parser.timeout_backoffs) or [0.0]
-    for attempt, wait in enumerate([None] + backoffs):
-        if wait is not None:
-            logger.info(
-                "Chapter %d timed out; waiting %.0fs and retrying with a fresh browser (attempt %d/%d)",
-                number, wait, attempt, len(backoffs),
-            )
-            await asyncio.sleep(wait)
-            if execution.interrupted:
-                raise TimeoutError(f"interrupted while backing off on chapter {number}")
-            await browser.restart()
-        try:
-            html = await browser.get_html(
-                ref.url,
-                parser.chapter_ready(ref.url),
-                is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
-            )
-            break
-        except TimeoutError:
-            if attempt == len(backoffs):
-                raise
+async def _fetch_chapter(browser, parser, ref, number) -> tuple[str | None, str]:
+    """Fetch one chapter; on a render timeout, restart Chrome once and retry
+    (recovers from a wedged tab or a stale session)."""
+    try:
+        html = await browser.get_html(
+            ref.url,
+            parser.chapter_ready(ref.url),
+            is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
+        )
+    except TimeoutError:
+        logger.info("Chapter %d timed out; restarting browser session and retrying", number)
+        await browser.restart()
+        html = await browser.get_html(
+            ref.url,
+            parser.chapter_ready(ref.url),
+            is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
+        )
     title, text = parser.parse_chapter(html, ref.url)
     if len(text) < MIN_CHAPTER_CHARS:
         raise ValueError(f"content too short ({len(text)} chars)")
@@ -280,7 +269,7 @@ async def _run_web_scrape(job: Job, execution: JobExecution) -> list[int]:
                 break
             ref = number_to_ref[number]
             try:
-                title, text = await _fetch_chapter(browser, parser, ref, number, execution)
+                title, text = await _fetch_chapter(browser, parser, ref, number)
                 etag = await s3.aput_text(text_key(novel_name, number), text)
                 async with session_scope() as session:
                     chapter = (

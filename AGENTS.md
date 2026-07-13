@@ -8,19 +8,18 @@ layout, job runtime, staleness logic) lives in `audiobook-core`
 - Platform overview, service catalog, and deploy workflow: `audiobook-platform`
   repo (locally at /Users/mats/Cursor/Audiobook creator).
 - Consumes the `scraper` Redis queue (job types `web_scrape`,
-  `check_chapters`). Scrapes fanmtl.com, webnovel.com and wtr-lab.com with a
-  real Chrome (nodriver + Xvfb) to pass Cloudflare; fanmtl/webnovel parsers
-  are ported from WebToEpub.
+  `check_chapters`). Scrapes fanmtl.com and webnovel.com with a real Chrome
+  (nodriver + Xvfb) to pass Cloudflare; parsers are ported from WebToEpub.
+  (wtr-lab.com support was removed - its free "web" translation throttles
+  to ~5 chapters per session, making bulk scraping impractical.)
 - Parsers (parsers/) are pure HTML-in/data-out and unit-tested against saved
   fixtures in tests/fixtures - update the fixtures if a site changes layout.
-- fanmtl/webnovel chapters are URL-addressed: rows match by
-  `chapters.source_url`, numbers are TOC positions and stay stable across
-  updates. wtr-lab chapters are number-addressed (`ChapterRef.number`) and
-  always use the free "web" translation (`?service=web`). Locked (paid)
-  webnovel chapters are skipped entirely.
-- Pre-scraper chapter rows (numbered, no `source_url`) are adopted on first
-  TOC sync — by site number on wtr-lab, by TOC position on URL-addressed
-  sites — so old novels can be linked to a source URL and updated without
+- Chapters are URL-addressed: rows match by `chapters.source_url`, numbers
+  are TOC positions and stay stable across updates. Locked (paid) webnovel
+  chapters are skipped entirely.
+- Chapter rows from another source (no `source_url`, or a different host
+  after a source switch) are adopted by TOC position on first sync, so old
+  novels can be linked/relinked to a source URL and updated without
   duplicating chapters.
 - Handlers receive `(job, execution)` and return a list of failed chapter
   numbers. Respect `execution.interrupted` between chapters and report

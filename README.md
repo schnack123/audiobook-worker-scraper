@@ -14,8 +14,6 @@ Supported sites (parsers ported from
 
 - fanmtl.com (`parsers/readwn.py`)
 - webnovel.com (`parsers/qidian.py`) - locked/paid chapters are skipped
-- wtr-lab.com (`parsers/wtrlab.py`) - always fetches the free "web"
-  translation (`?service=web`); no login/cookies needed
 
 Pages are fetched with [nodriver](https://github.com/ultrafunkamsterdam/nodriver)
 driving a real headed Chrome under Xvfb, which passes Cloudflare checks that

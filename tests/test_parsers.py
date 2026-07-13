@@ -2,7 +2,6 @@
 
 - fanmtl: https://www.fanmtl.com/novel/kks23487.html
 - webnovel: https://www.webnovel.com/book/...36129432200017805 (+/catalog)
-- wtr-lab: https://wtr-lab.com/en/novel/6588/online-game-god-tier-assassin-i-am-the-shadow
 """
 from pathlib import Path
 
@@ -11,14 +10,11 @@ import pytest
 from parsers import SUPPORTED_HOSTS, ParserError, get_parser
 from parsers.qidian import QidianParser
 from parsers.readwn import ReadwnParser
-from parsers.wtrlab import WtrLabParser
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 FANMTL_URL = "https://www.fanmtl.com/novel/kks23487.html"
 WEBNOVEL_URL = "https://www.webnovel.com/book/star-wars-the-chosen-one's-endless-grind_36129432200017805"
-WTRLAB_URL = "https://wtr-lab.com/en/novel/6588/online-game-god-tier-assassin-i-am-the-shadow?tab=toc"
-WTRLAB_BASE = "https://wtr-lab.com/en/novel/6588/online-game-god-tier-assassin-i-am-the-shadow"
 
 
 def read(name: str) -> str:
@@ -33,8 +29,7 @@ def test_registry():
     assert isinstance(get_parser(FANMTL_URL), ReadwnParser)
     assert isinstance(get_parser("https://fanmtl.com/novel/x.html"), ReadwnParser)
     assert isinstance(get_parser(WEBNOVEL_URL), QidianParser)
-    assert isinstance(get_parser(WTRLAB_URL), WtrLabParser)
-    assert set(SUPPORTED_HOSTS) == {"fanmtl.com", "webnovel.com", "wtr-lab.com"}
+    assert set(SUPPORTED_HOSTS) == {"fanmtl.com", "webnovel.com"}
     with pytest.raises(ParserError):
         get_parser("https://example.com/novel/1")
 
@@ -157,58 +152,3 @@ def test_qidian_parse_chapter():
     assert "CREATORS' THOUGHT" not in text
 
 
-# ---------------------------------------------------------------------------
-# wtr-lab
-# ---------------------------------------------------------------------------
-
-def test_wtrlab_urls():
-    parser = WtrLabParser()
-    assert parser.toc_url(WTRLAB_URL) == WTRLAB_BASE  # ?tab=toc stripped
-    assert parser.chapter_ready(WTRLAB_BASE + "/chapter-7?service=web") == (
-        "#chapter-7 div.chapter-body div.wtr-line"
-    )
-
-
-def test_wtrlab_parse_novel():
-    parser = WtrLabParser()
-    info = parser.parse_novel(read("wtrlab_novel.html"), WTRLAB_BASE)
-    assert info.title == "Online Game: God-tier Assassin, I Am the Shadow!"
-    assert info.author == "San Yuan Yi Zhi"  # data.author (EN) beats serie.author (raw)
-    assert info.description and "God Abandoned" in info.description
-    assert info.cover_url and info.cover_url.startswith("https://img.wtr-lab.com/")
-    assert info.chapters == []  # chapter list comes from the API
-
-
-def test_wtrlab_extra_toc_urls():
-    parser = WtrLabParser()
-    urls = parser.extra_toc_urls(read("wtrlab_novel.html"), WTRLAB_BASE)
-    assert urls == [
-        "https://wtr-lab.com/api/chapters/6588"
-        "#en/online-game-god-tier-assassin-i-am-the-shadow"
-    ]
-
-
-def test_wtrlab_parse_toc_page():
-    parser = WtrLabParser()
-    url = parser.extra_toc_urls(read("wtrlab_novel.html"), WTRLAB_BASE)[0]
-    refs = parser.parse_toc_page(read("wtrlab_api.html"), url)
-    assert len(refs) == 25  # fixture is truncated to the first 25 chapters
-    assert refs[0].number == 1
-    assert refs[0].title == "I was backstabbed by my sister and reborn!"
-    # Always fetch the free "web" translation - we clean text ourselves
-    assert refs[0].url == WTRLAB_BASE + "/chapter-1?service=web"
-    assert [r.number for r in refs] == list(range(1, 26))
-    assert not any(r.locked for r in refs)
-
-
-def test_wtrlab_parse_chapter():
-    parser = WtrLabParser()
-    title, text = parser.parse_chapter(
-        read("wtrlab_chapter.html"), WTRLAB_BASE + "/chapter-1?service=web"
-    )
-    assert title == "I was backstabbed by my sister and reborn!"
-    assert text.startswith("Chapter 1: I was reborn after being betrayed by my sister!")
-    assert len(text) > 1000
-    # The infinite reader preloads chapters 2/3 into the same DOM - their text
-    # must not leak into chapter 1
-    assert "Eye of Judgment! The Authority" not in text
