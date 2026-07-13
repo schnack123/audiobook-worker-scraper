@@ -44,6 +44,9 @@ class WtrLabParser(Parser):
     toc_ready_selector = "#__NEXT_DATA__, body > pre"
     chapter_ready_selector = "div.chapter-body div.wtr-line"
     delay_range = (4.0, 8.0)
+    # wtr-lab serves ~5 web-translation chapters per IP per ~10 min window,
+    # then pages render without text until the limit lifts. Wait it out.
+    timeout_backoffs = (300.0, 600.0)
 
     def toc_url(self, novel_url: str) -> str:
         lang, raw_id, slug = _split_novel_url(novel_url)

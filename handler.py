@@ -208,27 +208,35 @@ async def _run_check(job: Job, execution: JobExecution) -> list[int]:
 # web_scrape: TOC sync + chapter download
 # --------------------------------------------------------------------------
 
-async def _fetch_chapter(browser, parser, ref, number) -> tuple[str | None, str]:
-    """Fetch one chapter; on a render timeout, restart Chrome once and retry.
+async def _fetch_chapter(browser, parser, ref, number, execution) -> tuple[str | None, str]:
+    """Fetch one chapter; on a render timeout, restart Chrome and retry after
+    the parser's backoff waits.
 
-    wtr-lab stops delivering chapter text after ~5 pages in one session
-    (renders the shell plus an anti-adblock overlay instead); a fresh browser
-    session resets that, so a timeout usually means "session expired", not
-    "site broken"."""
-    try:
-        html = await browser.get_html(
-            ref.url,
-            parser.chapter_ready(ref.url),
-            is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
-        )
-    except TimeoutError:
-        logger.info("Chapter %d timed out; restarting browser session and retrying", number)
-        await browser.restart()
-        html = await browser.get_html(
-            ref.url,
-            parser.chapter_ready(ref.url),
-            is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
-        )
+    Some sites throttle chapter delivery per IP (wtr-lab serves ~5 web
+    translations, then renders the page shell without text for ~10 minutes).
+    A timeout there means "throttled", not "site broken", so wait out the
+    parser's `timeout_backoffs` before giving up on the chapter."""
+    backoffs = list(parser.timeout_backoffs) or [0.0]
+    for attempt, wait in enumerate([None] + backoffs):
+        if wait is not None:
+            logger.info(
+                "Chapter %d timed out; waiting %.0fs and retrying with a fresh browser (attempt %d/%d)",
+                number, wait, attempt, len(backoffs),
+            )
+            await asyncio.sleep(wait)
+            if execution.interrupted:
+                raise TimeoutError(f"interrupted while backing off on chapter {number}")
+            await browser.restart()
+        try:
+            html = await browser.get_html(
+                ref.url,
+                parser.chapter_ready(ref.url),
+                is_ready=lambda h: parser.chapter_is_ready(h, ref.url),
+            )
+            break
+        except TimeoutError:
+            if attempt == len(backoffs):
+                raise
     title, text = parser.parse_chapter(html, ref.url)
     if len(text) < MIN_CHAPTER_CHARS:
         raise ValueError(f"content too short ({len(text)} chars)")
@@ -272,7 +280,7 @@ async def _run_web_scrape(job: Job, execution: JobExecution) -> list[int]:
                 break
             ref = number_to_ref[number]
             try:
-                title, text = await _fetch_chapter(browser, parser, ref, number)
+                title, text = await _fetch_chapter(browser, parser, ref, number, execution)
                 etag = await s3.aput_text(text_key(novel_name, number), text)
                 async with session_scope() as session:
                     chapter = (

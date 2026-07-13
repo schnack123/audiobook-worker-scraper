@@ -40,6 +40,10 @@ class Parser:
     chapter_ready_selector: str = "body"
     # Seconds to sleep between chapter fetches (min, max)
     delay_range: tuple[float, float] = (5.0, 10.0)
+    # Waits before retrying a chapter whose page timed out. Empty = one
+    # immediate retry (fresh browser session). Sites that throttle per IP
+    # (wtr-lab) need real waits for the limit to lift.
+    timeout_backoffs: tuple[float, ...] = ()
 
     def toc_url(self, novel_url: str) -> str:
         """URL of the page holding the chapter list (defaults to the novel URL)."""
